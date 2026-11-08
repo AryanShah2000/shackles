@@ -358,63 +358,66 @@
     $('#mgrid').innerHTML = cols;
   }
 
-  function habitCard(h, t) {
+  function habitRow(h, t) {
     var ts = habitStatus(h, t, state.marks, t);
     var count = markCount(state.marks, t, h.id);
     var streak = habitStreak(h, state.marks, t);
     var id = h.id;
+    var open = !!openGrids[id];
 
-    // Big action buttons come first so they are the easiest thing to hit.
-    var action, line = '';
+    var action, state_ = '';
     if (h.type === 'good') {
-      if (ts === 'done') action = '<button type="button" class="btn big done" data-act="toggle" data-id="' + id + '" aria-pressed="true">Done today ✓</button>';
-      else if (ts === 'pending') action = '<button type="button" class="btn big primary" data-act="toggle" data-id="' + id + '" aria-pressed="false">Mark done</button>';
-      else action = '<button type="button" class="btn big" disabled>Rest day</button>';
+      if (ts === 'done') action = '<button type="button" class="btn sm done" data-act="toggle" data-id="' + id + '" aria-pressed="true">Done ✓</button>';
+      else if (ts === 'pending') action = '<button type="button" class="btn sm primary" data-act="toggle" data-id="' + id + '" aria-pressed="false">Mark done</button>';
+      else action = '<button type="button" class="btn sm" disabled>Rest day</button>';
+      state_ = streak ? streak + '-day streak' : 'No streak yet';
     } else if (ts === 'off') {
-      action = '<button type="button" class="btn big" disabled>Not tracked today</button>';
+      action = '<button type="button" class="btn sm" disabled>Off today</button>';
+      state_ = 'Not tracked today';
     } else {
-      action = '<div class="actions">' +
-        '<button type="button" class="btn big slipbtn' + (count ? ' hot' : '') + '" data-act="slip" data-id="' + id + '">' + (count ? 'I slipped again' : 'I slipped') + '</button>' +
-        (count ? '<button type="button" class="btn big undo" data-act="unslip" data-id="' + id + '" aria-label="Undo last slip">Undo</button>' : '') +
-        '</div>';
-      line = count
-        ? '<div class="state-line bad">Slipped ' + times(count) + ' today</div>'
-        : '<div class="state-line good">Clean so far today</div>';
+      action = '<button type="button" class="btn sm slipbtn' + (count ? ' hot' : '') + '" data-act="slip" data-id="' + id + '">' + (count ? 'I slipped again' : 'I slipped') + '</button>' +
+        (count ? '<button type="button" class="btn sm undo" data-act="unslip" data-id="' + id + '" aria-label="Undo last slip">Undo</button>' : '');
+      state_ = count ? '<span class="bad">Slipped ' + times(count) + ' today</span>' : '<span class="good">Clean today</span>';
+    }
+    var meta = '<span class="' + h.type + '">' + (h.type === 'good' ? 'Good' : 'Bad') + '</span> · ' + freqText(h.days) + ' · ' + state_;
+
+    var more = '';
+    if (open) {
+      var calStart = addDays(weekStart(t), -28);
+      var cells = '';
+      for (var i = 0; i < 35; i++) {
+        var d = addDays(calStart, i);
+        var s = habitStatus(h, d, state.marks, t);
+        var tap = TAPPABLE.indexOf(s) !== -1;
+        var c = markCount(state.marks, d, id);
+        var word = STATUS_WORD[s] + (h.type === 'bad' && c > 1 ? ' ' + c + ' times' : '');
+        cells += '<button type="button" class="c ' + CLS[s] + (d === t ? ' t' : '') + '"' +
+          (h.type === 'bad' && c > 1 ? ' data-n="' + c + '"' : '') +
+          (tap ? ' data-date="' + d + '" data-id="' + id + '"' : ' disabled tabindex="-1"') +
+          ' aria-label="' + label(d) + ': ' + word + '"></button>';
+      }
+      var heads = DAY_LETTERS.map(function (l) { return '<span>' + l + '</span>'; }).join('');
+      var hint = h.type === 'bad' ? 'Tap a past day to add a slip. Keep tapping to add more, up to ' + SLIP_CYCLE_MAX + ', then it clears.' : 'Tap a past day to fix it.';
+      more = '<div class="hrow-more"><div class="cal-head" aria-hidden="true">' + heads + '</div><div class="cal">' + cells + '</div>' +
+        '<p class="cal-hint">' + hint + '</p>' +
+        '<button type="button" class="link edit-link" data-act="edit" data-id="' + id + '">Edit habit</button></div>';
     }
 
-    // Quiet 5-week grid, tucked into a dropdown.
-    var calStart = addDays(weekStart(t), -28);
-    var cells = '';
-    for (var i = 0; i < 35; i++) {
-      var d = addDays(calStart, i);
-      var s = habitStatus(h, d, state.marks, t);
-      var tap = TAPPABLE.indexOf(s) !== -1;
-      var c = markCount(state.marks, d, id);
-      var word = STATUS_WORD[s] + (h.type === 'bad' && c > 1 ? ' ' + c + ' times' : '');
-      cells += '<button type="button" class="c ' + CLS[s] + (d === t ? ' t' : '') + '"' +
-        (h.type === 'bad' && c > 1 ? ' data-n="' + c + '"' : '') +
-        (tap ? ' data-date="' + d + '" data-id="' + id + '"' : ' disabled tabindex="-1"') +
-        ' aria-label="' + label(d) + ': ' + word + '"></button>';
-    }
-    var heads = DAY_LETTERS.map(function (l) { return '<span>' + l + '</span>'; }).join('');
-    var hint = h.type === 'bad' ? 'Tap a past day to add a slip. Keep tapping to add more, up to ' + SLIP_CYCLE_MAX + ', then it clears.' : 'Tap a past day to fix it.';
-
-    return '<article class="card habit">' +
-      '<div class="habit-head"><h3>' + esc(h.name) + '</h3>' +
-      '<button type="button" class="icon-btn" data-act="edit" data-id="' + id + '" aria-label="Edit ' + esc(h.name) + '">' +
-      '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></div>' +
-      action + line +
-      '<div class="meta"><span class="pill ' + h.type + '">' + (h.type === 'good' ? 'Good habit' : 'Bad habit') + '</span><span>' + freqText(h.days) + '</span><span class="streak">' + (streak ? streak + '-day streak' : 'No streak yet') + '</span></div>' +
-      '<details class="gridbox" data-id="' + id + '"' + (openGrids[id] ? ' open' : '') + '>' +
-      '<summary><span>Past 5 weeks</span><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></summary>' +
-      '<div class="cal-wrap"><div class="cal-head" aria-hidden="true">' + heads + '</div><div class="cal">' + cells + '</div><p class="cal-hint">' + hint + '</p></div>' +
-      '</details></article>';
+    return '<article class="hrow' + (open ? ' open' : '') + '">' +
+      '<div class="hrow-main">' +
+      '<button type="button" class="hrow-name" data-act="expand" data-id="' + id + '" aria-expanded="' + open + '">' +
+      '<span class="hname">' + esc(h.name) +
+      '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>' +
+      '<span class="hmeta">' + meta + '</span></button>' +
+      '<div class="hrow-actions">' + action + '</div></div>' + more + '</article>';
   }
 
   function renderHabits(t) {
-    var html = state.habits.map(function (h) { return habitCard(h, t); }).join('');
+    var html;
     if (!state.habits.length) {
       html = '<div class="card empty"><h3>Pick up to three</h3><p>Good habits you want to do, bad habits you want to avoid. Keep it small so you can keep it going.</p></div>';
+    } else {
+      html = '<div class="card habit-list">' + state.habits.map(function (h) { return habitRow(h, t); }).join('') + '</div>';
     }
     $('#habits').innerHTML = html;
     $('#add-wrap').innerHTML = state.habits.length < MAX_HABITS
@@ -729,6 +732,7 @@
       if (act.dataset.act === 'toggle') setCount(id, t, cur ? 0 : 1, cur ? 'undone' : 'done');
       else if (act.dataset.act === 'slip') setCount(id, t, cur + 1, 'slip');
       else if (act.dataset.act === 'unslip') setCount(id, t, cur - 1, 'unslip');
+      else if (act.dataset.act === 'expand') { openGrids[id] = !openGrids[id]; renderHabits(t); }
       else if (act.dataset.act === 'edit') openSheet(id);
       return;
     }
@@ -745,12 +749,6 @@
       setCount(h.id, c.dataset.date, next, next > n ? 'slip' : 'unslip');
     }
   });
-
-  // Remember which dropdowns are open. The toggle event does not bubble, so capture it.
-  $('#habits').addEventListener('toggle', function (e) {
-    var d = e.target;
-    if (d && d.matches && d.matches('details.gridbox')) openGrids[d.dataset.id] = d.open;
-  }, true);
 
   $('#add-wrap').addEventListener('click', function (e) { if (e.target.closest('#add-btn')) openSheet(); });
 
