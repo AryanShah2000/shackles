@@ -120,7 +120,8 @@
       Object.keys(src[d]).forEach(function (id) { if (seen.has(id) && src[d][id]) m[id] = true; });
       if (Object.keys(m).length) marks[d] = m;
     });
-    return { habits: habits, marks: marks };
+    var updated = typeof s.updated === 'number' && isFinite(s.updated) ? Math.floor(s.updated) : 0;
+    return { habits: habits, marks: marks, updated: updated };
   }
 
   var core = {
@@ -155,14 +156,27 @@
   function load() {
     try {
       var raw = localStorage.getItem(KEY);
-      if (raw) { var n = normalize(JSON.parse(raw)); if (n) return n; }
+      if (raw) {
+        var n = normalize(JSON.parse(raw));
+        if (n) {
+          if (!n.updated && n.habits.length) n.updated = Date.now(); // data from before sync existed
+          return n;
+        }
+      }
     } catch (e) { /* fall through */ }
-    return { habits: [], marks: {} };
+    return { habits: [], marks: {}, updated: 0 };
   }
 
-  function save() {
+  function persistLocal() {
     try { localStorage.setItem(KEY, JSON.stringify(state)); }
     catch (e) { toast('Could not save. Storage may be blocked.'); }
+  }
+
+  // Every local change stamps the data and queues a sync.
+  function save() {
+    state.updated = Date.now();
+    persistLocal();
+    scheduleSync();
   }
 
   var toastTimer;
@@ -432,7 +446,97 @@
     r.readAsText(file);
   }
 
+  /* ---------- cloud sync (Neon via /api/data) ---------- */
+
+  // Local storage stays the source of truth for the UI, so the app works offline.
+  // When a passcode is set, the whole document syncs to the server. Newest edit wins.
+  var PASS_KEY = 'three.passcode';
+  var syncStatus = 'off';
+  var syncing = false;
+  var syncAgain = false;
+  var syncTimer;
+
+  function getPass() { try { return localStorage.getItem(PASS_KEY) || ''; } catch (e) { return ''; } }
+  function setPass(v) { try { if (v) localStorage.setItem(PASS_KEY, v); else localStorage.removeItem(PASS_KEY); } catch (e) { /* ignore */ } }
+
+  function api(method, body) {
+    return fetch('./api/data', {
+      method: method,
+      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getPass() },
+      body: body ? JSON.stringify(body) : undefined
+    }).then(function (r) {
+      return r.json().then(function (j) {
+        if (r.status === 401) { var a = new Error('auth'); a.code = 401; throw a; }
+        if (!r.ok && r.status !== 409) { var e = new Error(j.error || 'error'); e.code = r.status; throw e; }
+        j.status = r.status;
+        return j;
+      });
+    });
+  }
+
+  function setSyncStatus(s) { syncStatus = s; renderSync(); }
+
+  function renderSync() {
+    var text = { off: 'Saved on this device only.', syncing: 'Syncing...', synced: 'Synced across your devices.',
+      offline: 'Offline. Will retry.', auth: 'Wrong passcode.' }[syncStatus];
+    $('#sync-line').textContent = text;
+    $('#sync-actions').innerHTML = getPass()
+      ? '<button type="button" class="link" data-sync="now">Sync now</button> <span aria-hidden="true">/</span> <button type="button" class="link" data-sync="off">Turn off sync</button>'
+      : '<button type="button" class="link" data-sync="on">Turn on sync</button>';
+  }
+
+  function scheduleSync() {
+    if (!getPass()) return;
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(syncNow, 800);
+  }
+
+  function adopt(remote) {
+    var rd = normalize(remote);
+    if (!rd) return false;
+    state = rd;
+    persistLocal();
+    render();
+    return true;
+  }
+
+  function syncNow() {
+    if (!getPass()) { setSyncStatus('off'); return; }
+    if (syncing) { syncAgain = true; return; }
+    syncing = true;
+    setSyncStatus('syncing');
+    api('GET')
+      .then(function (res) {
+        var remote = res.data ? normalize(res.data) : null;
+        if (remote && remote.updated > state.updated) { adopt(res.data); return; }
+        if (!remote || state.updated > remote.updated) {
+          return api('PUT', { data: { habits: state.habits, marks: state.marks, updated: state.updated } })
+            .then(function (put) { if (put.status === 409 && put.data) adopt(put.data); });
+        }
+      })
+      .then(function () { setSyncStatus('synced'); })
+      .catch(function (err) { setSyncStatus(err && err.code === 401 ? 'auth' : 'offline'); })
+      .then(function () {
+        syncing = false;
+        if (syncAgain) { syncAgain = false; syncNow(); }
+      });
+  }
+
   /* ---------- events ---------- */
+
+  $('#sync-actions').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-sync]');
+    if (!b) return;
+    if (b.dataset.sync === 'on') {
+      var p = window.prompt('Enter your sync passcode (the APP_PASSCODE you set in Vercel):');
+      if (p && p.trim()) { setPass(p.trim()); syncNow(); }
+    } else if (b.dataset.sync === 'off') {
+      if (window.confirm('Turn off sync on this device? Your data stays here and in the cloud.')) { setPass(''); setSyncStatus('off'); }
+    } else {
+      syncNow();
+    }
+  });
 
   $('#mgrid').addEventListener('click', function (e) {
     var c = e.target.closest('.c[data-date]');
@@ -498,7 +602,8 @@
 
   // Roll over to the new day without a reload
   function checkDay() { if (todayStr() !== renderedDay) render(); }
-  document.addEventListener('visibilitychange', function () { if (!document.hidden) checkDay(); });
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) { checkDay(); syncNow(); } });
+  window.addEventListener('online', syncNow);
   window.addEventListener('focus', checkDay);
   setInterval(checkDay, 30000);
 
@@ -507,6 +612,8 @@
   document.documentElement.style.setProperty('--weeks', WEEKS);
   $('#logo').innerHTML = logoSvg();
   render();
+  renderSync();
+  syncNow();
 
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function () {});
   if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {

@@ -1,6 +1,6 @@
 # three
 
-Three habits. One streak. An installable web app (PWA) with no build step.
+Three habits. One streak. An installable web app (PWA) with no build step and optional Neon sync.
 
 ## Deploy
 
@@ -25,9 +25,20 @@ Set up your habits after installing, not before. On iPhone the home screen app h
 - Days a habit is not scheduled count as rest days and never break a streak.
 - Tap a past square on a habit to fix a day.
 
-## Data
+## Data and sync
 
-Everything is stored in the browser (localStorage) on that device. Use **Back up** and **Restore** at the bottom of the app to move data between devices.
+The app always saves to the browser (localStorage) first, so it works offline. Optionally it syncs to a Neon Postgres database through `api/data.js`.
+
+Set up sync:
+
+1. In the Vercel project, open **Storage** and connect your Neon database. This adds `DATABASE_URL`. An existing Neon database works, the app only creates one table named `three_state`.
+2. In **Settings, Environment Variables**, add `APP_PASSCODE` with a long private passcode.
+3. Redeploy.
+4. In the app footer, tap **Turn on sync** and enter the passcode. Do this once on each device.
+
+Sync is single user. The newest edit wins, so edit on one device at a time. Wrong passcode attempts are slowed down on the server.
+
+**Back up** and **Restore** at the bottom of the app still work as a manual copy.
 
 ## Updating
 

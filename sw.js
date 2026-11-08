@@ -1,5 +1,5 @@
 // Offline support. Bump CACHE when you want every device to drop old files.
-var CACHE = 'three-v1';
+var CACHE = 'three-v2';
 var ASSETS = [
   './',
   './index.html',
@@ -32,7 +32,9 @@ self.addEventListener('activate', function (e) {
 // Serve from cache instantly, refresh the cache in the background.
 self.addEventListener('fetch', function (e) {
   var req = e.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
+  var url = new URL(req.url);
+  if (req.method !== 'GET' || url.origin !== self.location.origin) return;
+  if (url.pathname.indexOf('/api/') === 0) return; // never cache API responses
   e.respondWith(
     caches.match(req).then(function (cached) {
       var network = fetch(req)
