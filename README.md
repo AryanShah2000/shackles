@@ -23,7 +23,9 @@ Set up your habits after installing, not before. On iPhone the home screen app h
 - Master grid: a day is green only if every habit is on track. Otherwise red.
 - Streak: consecutive green days. An unfinished today does not break it.
 - Days a habit is not scheduled count as rest days and never break a streak.
-- Tap a past square on a habit to fix a day.
+- Bad habits can be logged more than once a day. The button changes to "I slipped again", and Undo removes the last one. The day stays red, and the count shows in the habit's grid.
+- Tap a past square on a habit to fix a day. Each habit's grid lives in a dropdown under its buttons.
+- History tab: every tap is logged with its exact time in your device's local time zone, including undos and past-day fixes. It also totals slips for today, 7 days and 30 days.
 
 ## Data and sync
 

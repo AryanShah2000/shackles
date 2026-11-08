@@ -13,7 +13,8 @@
 const crypto = require('crypto');
 const { neon } = require('@neondatabase/serverless');
 
-const MAX_BYTES = 500 * 1024;
+const MAX_BYTES = 1024 * 1024;
+const MAX_LOG = 2000;
 let tableReady = false;
 
 function sameSecret(given, expected) {
@@ -32,7 +33,8 @@ function validate(d) {
   if (!Array.isArray(d.habits) || d.habits.length > 3) return 'habits must be an array of at most 3';
   if (!d.marks || typeof d.marks !== 'object' || Array.isArray(d.marks)) return 'marks must be an object';
   if (typeof d.updated !== 'number' || !isFinite(d.updated) || d.updated < 0) return 'updated must be a number';
-  if (JSON.stringify({ habits: d.habits, marks: d.marks }).length > MAX_BYTES) return 'payload too large';
+  if (d.log !== undefined && (!Array.isArray(d.log) || d.log.length > MAX_LOG)) return 'log must be an array of at most ' + MAX_LOG;
+  if (JSON.stringify({ habits: d.habits, marks: d.marks, log: d.log || [] }).length > MAX_BYTES) return 'payload too large';
   return null;
 }
 
@@ -85,7 +87,7 @@ module.exports = async function handler(req, res) {
     const problem = validate(d);
     if (problem) return res.status(400).json({ error: problem });
 
-    const payload = JSON.stringify({ habits: d.habits, marks: d.marks });
+    const payload = JSON.stringify({ habits: d.habits, marks: d.marks, log: d.log || [] });
     const updated = String(Math.floor(d.updated));
 
     // Only overwrite when the incoming version is at least as new as the stored one.

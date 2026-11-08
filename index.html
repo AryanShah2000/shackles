@@ -22,24 +22,36 @@
       <div class="date" id="today-label"></div>
     </header>
 
-    <section id="hero" class="card hero" aria-live="polite"></section>
+    <nav class="tabs" role="tablist" aria-label="Views">
+      <button type="button" role="tab" data-tab="today" aria-selected="true">Today</button>
+      <button type="button" role="tab" data-tab="history" aria-selected="false">History</button>
+    </nav>
 
-    <section class="card" aria-labelledby="master-title">
-      <div class="card-head">
-        <h2 id="master-title">Master grid</h2>
-        <div class="legend" aria-hidden="true">
-          <span><i class="c g"></i>All good</span>
-          <span><i class="c r"></i>Missed</span>
-          <span><i class="c p"></i>Today</span>
+    <div id="view-today" class="view">
+      <section id="hero" class="card hero" aria-live="polite"></section>
+
+      <section class="card master" aria-labelledby="master-title">
+        <div class="card-head">
+          <h2 id="master-title">Master grid</h2>
+          <div class="legend" aria-hidden="true">
+            <span><i class="c g"></i>All good</span>
+            <span><i class="c r"></i>Missed</span>
+            <span><i class="c p"></i>Today</span>
+          </div>
         </div>
-      </div>
-      <div class="months" id="months" aria-hidden="true"></div>
-      <div class="mgrid" id="mgrid"></div>
-      <p class="cap" id="mcap">Tap a square for details.</p>
-    </section>
+        <div class="months" id="months" aria-hidden="true"></div>
+        <div class="mgrid" id="mgrid"></div>
+        <p class="cap" id="mcap">Tap a square for details.</p>
+      </section>
 
-    <section id="habits" class="habits"></section>
-    <div id="add-wrap"></div>
+      <section id="habits" class="habits"></section>
+      <div id="add-wrap"></div>
+    </div>
+
+    <div id="view-history" class="view" hidden>
+      <section id="slip-summary"></section>
+      <section id="history" class="card hist"></section>
+    </div>
 
     <footer class="foot">
       <p id="sync-line"></p>

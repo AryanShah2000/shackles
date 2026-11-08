@@ -1,5 +1,5 @@
 // Offline support. Bump CACHE when you want every device to drop old files.
-var CACHE = 'three-v2';
+var CACHE = 'three-v3';
 var ASSETS = [
   './',
   './index.html',
