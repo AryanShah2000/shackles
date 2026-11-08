@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>three</title>
+  <meta name="description" content="Three habits. One streak.">
+  <meta name="theme-color" content="#0a1d14">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icons/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="three">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main id="app">
+    <header class="top">
+      <div class="brand"><span id="logo" aria-hidden="true"></span><span>three</span></div>
+      <div class="date" id="today-label"></div>
+    </header>
+
+    <section id="hero" class="card hero" aria-live="polite"></section>
+
+    <section class="card" aria-labelledby="master-title">
+      <div class="card-head">
+        <h2 id="master-title">Master grid</h2>
+        <div class="legend" aria-hidden="true">
+          <span><i class="c g"></i>All good</span>
+          <span><i class="c r"></i>Missed</span>
+          <span><i class="c p"></i>Today</span>
+        </div>
+      </div>
+      <div class="months" id="months" aria-hidden="true"></div>
+      <div class="mgrid" id="mgrid"></div>
+      <p class="cap" id="mcap">Tap a square for details.</p>
+    </section>
+
+    <section id="habits" class="habits"></section>
+    <div id="add-wrap"></div>
+
+    <footer class="foot">
+      <p>Your data lives on this device only.</p>
+      <p><button type="button" class="link" id="export">Back up</button> <span aria-hidden="true">/</span> <button type="button" class="link" id="import">Restore</button></p>
+      <input type="file" id="import-file" accept="application/json,.json" hidden>
+    </footer>
+  </main>
+
+  <div id="sheet" class="sheet" hidden>
+    <div class="panel" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+      <div class="panel-head">
+        <h2 id="sheet-title">New habit</h2>
+        <button type="button" class="icon-btn" id="sheet-close" aria-label="Close">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <label class="field">
+        <span>Habit</span>
+        <input id="f-name" maxlength="40" autocomplete="off" placeholder="e.g. Take medication">
+      </label>
+
+      <div class="field">
+        <span>Type</span>
+        <div class="seg" id="f-type">
+          <button type="button" data-type="good">Good habit</button>
+          <button type="button" data-type="bad">Bad habit</button>
+        </div>
+        <p class="hint" id="f-hint"></p>
+      </div>
+
+      <div class="field">
+        <span id="f-freq-label">Frequency</span>
+        <div class="presets">
+          <button type="button" data-preset="all">Every day</button>
+          <button type="button" data-preset="week">Weekdays</button>
+          <button type="button" data-preset="end">Weekends</button>
+        </div>
+        <div class="chips" id="f-days"></div>
+      </div>
+
+      <p class="err" id="f-err" role="alert"></p>
+      <div class="panel-actions">
+        <button type="button" class="btn danger" id="f-delete" hidden>Delete</button>
+        <button type="button" class="btn primary" id="f-save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="./app.js" defer></script>
+</body>
+</html>
