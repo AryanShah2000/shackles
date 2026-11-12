@@ -4,7 +4,8 @@
   var MAX_HABITS = 3;
   var LOG_MAX = 2000;
   var SLIP_CYCLE_MAX = 5;
-  var KEY = 'three.v1';
+  var KEY = 'three.v2';
+  var OLD_KEY = 'three.v1';
   var DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   var DAY_LETTERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
   var ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
@@ -33,74 +34,101 @@
     return typeof v === 'number' ? v : 1;
   }
 
-  // One habit on one day:
-  // none (before habit existed), future, off (not scheduled),
-  // done / miss / pending (good habits), clean / slip (bad habits)
-  function habitStatus(h, date, marks, t) {
-    if (date > t) return 'future';
-    if (date < h.start) return 'none';
-    if (h.days.indexOf(dow(date)) === -1) return 'off';
-    var marked = markCount(marks, date, h.id) > 0;
-    if (h.type === 'good') return marked ? 'done' : (date === t ? 'pending' : 'miss');
-    return marked ? 'slip' : 'clean';
-  }
-
-  // All habits on one day: green, red, pending, none, future
-  function dayStatus(habits, date, marks, t) {
-    if (date > t) return 'future';
-    var active = habits.filter(function (h) { return h.start <= date; });
-    if (!active.length) return 'none';
-    var sts = active.map(function (h) { return habitStatus(h, date, marks, t); });
-    if (sts.some(function (s) { return s === 'miss' || s === 'slip'; })) return 'red';
-    if (sts.some(function (s) { return s === 'pending'; })) return 'pending';
-    return 'green';
-  }
-
-  // Consecutive green days. Today only counts once it is green;
-  // an unfinished today does not break the streak.
-  function currentStreak(habits, marks, t) {
-    var d = t;
-    var n = 0;
-    if (dayStatus(habits, d, marks, t) === 'pending') d = addDays(d, -1);
-    while (dayStatus(habits, d, marks, t) === 'green') {
-      n++;
-      d = addDays(d, -1);
+  // One habit on one day. Returns:
+  //   st:   future | none (before the habit existed) | off (rest day)
+  //         done | miss | pending (good habits)   clean | slip (bad habits)
+  //   pts:  points earned that day
+  //   pend: true while the day is still open and the points can still change
+  // Scoring: a good habit is +1 when done and 0 when missed. A bad habit is
+  // +1 for a clean day (paid out when the day ends) and -1 for every slip.
+  function habitDay(h, date, marks, t) {
+    if (date > t) return { st: 'future', pts: 0, pend: false };
+    if (date < h.start) return { st: 'none', pts: 0, pend: false };
+    if (h.days.indexOf(dow(date)) === -1) return { st: 'off', pts: 0, pend: false };
+    var n = markCount(marks, date, h.id);
+    var open = date === t;
+    if (h.type === 'good') {
+      if (n > 0) return { st: 'done', pts: 1, pend: false };
+      return open ? { st: 'pending', pts: 0, pend: true } : { st: 'miss', pts: 0, pend: false };
     }
-    return n;
+    if (n > 0) return { st: 'slip', pts: -n, pend: false };
+    return open ? { st: 'clean', pts: 0, pend: true } : { st: 'clean', pts: 1, pend: false };
+  }
+
+  // All habits on one day: future, none, off (nothing scheduled),
+  // pending (open day still at zero) or scored with a score.
+  function dayInfo(habits, date, marks, t) {
+    if (date > t) return { st: 'future', score: 0 };
+    var active = habits.filter(function (h) { return h.start <= date; });
+    if (!active.length) return { st: 'none', score: 0 };
+    var score = 0;
+    var pend = false;
+    var scheduled = 0;
+    active.forEach(function (h) {
+      var d = habitDay(h, date, marks, t);
+      if (d.st === 'off') return;
+      scheduled++;
+      score += d.pts;
+      if (d.pend) pend = true;
+    });
+    if (!scheduled) return { st: 'off', score: 0 };
+    return { st: pend && score === 0 ? 'pending' : 'scored', score: score };
+  }
+
+  // Color ramp: red below zero, yellow at zero, green above zero.
+  function level(pts) {
+    if (pts >= 3) return 'g3';
+    if (pts === 2) return 'g2';
+    if (pts === 1) return 'g1';
+    if (pts === 0) return 'y';
+    if (pts === -1) return 'r1';
+    if (pts === -2) return 'r2';
+    return 'r3';
+  }
+
+  var PLAIN = { future: 'f', none: 'n', off: 'o', pending: 'p' };
+
+  function dayClass(info) { return info.st === 'scored' ? level(info.score) : PLAIN[info.st]; }
+
+  function habitClass(d) {
+    if (d.st === 'future' || d.st === 'none' || d.st === 'off') return PLAIN[d.st];
+    return d.pend ? 'p' : level(d.pts);
+  }
+
+  function signed(n) { return n > 0 ? '+' + n : n < 0 ? '-' + Math.abs(n) : '0'; }
+
+  function eachDay(from, to, fn) {
+    var d = from;
+    while (d <= to) { fn(d); d = addDays(d, 1); }
+  }
+
+  function firstStart(habits) { return habits.map(function (h) { return h.start; }).sort()[0]; }
+
+  function totalPoints(habits, marks, t) {
+    if (!habits.length) return 0;
+    var sum = 0;
+    eachDay(firstStart(habits), t, function (d) { sum += dayInfo(habits, d, marks, t).score; });
+    return sum;
+  }
+
+  function habitTotal(h, marks, t) {
+    var sum = 0;
+    eachDay(h.start, t, function (d) { sum += habitDay(h, d, marks, t).pts; });
+    return sum;
+  }
+
+  function rangeScore(habits, marks, t, days) {
+    var sum = 0;
+    for (var i = 0; i < days; i++) sum += dayInfo(habits, addDays(t, -i), marks, t).score;
+    return sum;
   }
 
   function stats(habits, marks, t) {
-    var out = { current: 0, best: 0, greens: 0 };
-    if (!habits.length) return out;
-    out.current = currentStreak(habits, marks, t);
-    var d = habits.map(function (h) { return h.start; }).sort()[0];
-    var run = 0;
-    while (d <= t) {
-      var s = dayStatus(habits, d, marks, t);
-      if (s === 'green') {
-        run++;
-        out.greens++;
-        if (run > out.best) out.best = run;
-      } else if (s !== 'pending') {
-        run = 0;
-      }
-      d = addDays(d, 1);
-    }
-    return out;
-  }
-
-  // Streak for a single habit. Rest days neither add nor break.
-  function habitStreak(h, marks, t) {
-    var d = t;
-    var n = 0;
-    if (habitStatus(h, d, marks, t) === 'pending') d = addDays(d, -1);
-    while (d >= h.start) {
-      var s = habitStatus(h, d, marks, t);
-      if (s === 'done' || s === 'clean') n++;
-      else if (s !== 'off') break;
-      d = addDays(d, -1);
-    }
-    return n;
+    return {
+      total: totalPoints(habits, marks, t),
+      today: dayInfo(habits, t, marks, t).score,
+      week: rangeScore(habits, marks, t, 7)
+    };
   }
 
   // Total marks (slips) for a habit over the last `days` days, today included.
@@ -140,7 +168,8 @@
         type: e.type === 'bad' ? 'bad' : 'good',
         date: e.date,
         act: e.act,
-        n: Number.isInteger(e.n) && e.n >= 0 && e.n <= 99 ? e.n : 0
+        n: Number.isInteger(e.n) && e.n >= 0 && e.n <= 99 ? e.n : 0,
+        p: Number.isInteger(e.p) && e.p >= -99 && e.p <= 99 ? e.p : 0
       });
     });
     out.sort(function (a, b) { return a.t - b.t; });
@@ -181,14 +210,14 @@
       if (Object.keys(m).length) marks[d] = m;
     });
     var updated = typeof s.updated === 'number' && isFinite(s.updated) ? Math.floor(s.updated) : 0;
-    return { habits: habits, marks: marks, log: sanitizeLog(s.log), updated: updated };
+    return { v: 2, habits: habits, marks: marks, log: sanitizeLog(s.log), updated: updated };
   }
 
   var core = {
-    habitStatus: habitStatus, dayStatus: dayStatus, currentStreak: currentStreak,
-    stats: stats, habitStreak: habitStreak, normalize: normalize, addDays: addDays,
-    weekStart: weekStart, fmt: fmt, parse: parse, markCount: markCount, countIn: countIn,
-    sanitizeLog: sanitizeLog, mergeLogs: mergeLogs
+    habitDay: habitDay, dayInfo: dayInfo, level: level, dayClass: dayClass, habitClass: habitClass,
+    signed: signed, totalPoints: totalPoints, habitTotal: habitTotal, rangeScore: rangeScore, stats: stats,
+    normalize: normalize, addDays: addDays, weekStart: weekStart, fmt: fmt, parse: parse,
+    markCount: markCount, countIn: countIn, sanitizeLog: sanitizeLog, mergeLogs: mergeLogs
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = core;
   if (typeof document === 'undefined') return;
@@ -196,11 +225,9 @@
   /* ---------- UI ---------- */
 
   var WEEKS = 14;
-  var CLS = { green: 'g', red: 'r', pending: 'p', none: 'n', future: 'f',
-    done: 'g', clean: 'g', miss: 'r', slip: 'r', off: 'o' };
   var STATUS_WORD = { done: 'done', clean: 'clean', miss: 'missed', slip: 'slipped', pending: 'not done yet',
     off: 'not scheduled', none: 'before this habit', future: 'upcoming' };
-  var TAPPABLE = ['done', 'clean', 'miss', 'slip', 'pending'];
+  function tappable(st) { return st !== 'future' && st !== 'none' && st !== 'off'; }
 
   var $ = function (s) { return document.querySelector(s); };
   var esc = function (s) {
@@ -222,13 +249,25 @@
       var raw = localStorage.getItem(KEY);
       if (raw) {
         var n = normalize(JSON.parse(raw));
-        if (n) {
-          if (!n.updated && n.habits.length) n.updated = Date.now(); // data from before sync existed
-          return n;
+        if (n) return n;
+      }
+      // One-time reset for the points system: keep the habits, wipe all history.
+      var old = localStorage.getItem(OLD_KEY);
+      if (old) {
+        var o = normalize(JSON.parse(old));
+        if (o) {
+          var today = todayStr();
+          o.habits.forEach(function (h) { h.start = today; });
+          o.marks = {};
+          o.log = [];
+          o.updated = 0; // any data already on the server wins over this fresh start
+          try { localStorage.setItem(KEY, JSON.stringify(o)); } catch (e) { /* ignore */ }
+          try { localStorage.removeItem(OLD_KEY); } catch (e) { /* ignore */ }
+          return o;
         }
       }
     } catch (e) { /* fall through */ }
-    return { habits: [], marks: {}, log: [], updated: 0 };
+    return { v: 2, habits: [], marks: {}, log: [], updated: 0 };
   }
 
   function persistLocal() {
@@ -254,8 +293,8 @@
 
   function findHabit(id) { return state.habits.filter(function (h) { return h.id === id; })[0]; }
 
-  function logEvent(h, date, act, n) {
-    state.log.push({ t: Date.now(), id: h.id, name: h.name, type: h.type, date: date, act: act, n: n });
+  function logEvent(h, date, act, n, p) {
+    state.log.push({ t: Date.now(), id: h.id, name: h.name, type: h.type, date: date, act: act, n: n, p: p });
     if (state.log.length > LOG_MAX) state.log = state.log.slice(-LOG_MAX);
   }
 
@@ -271,7 +310,7 @@
     var m = state.marks[date] || (state.marks[date] = {});
     if (next > 0) m[id] = next; else delete m[id];
     if (!Object.keys(m).length) delete state.marks[date];
-    logEvent(h, date, act, next);
+    logEvent(h, date, act, next, h.type === 'good' ? next - cur : cur - next);
     save();
     render();
     if (date !== t) toast(label(date) + ' updated');
@@ -287,19 +326,18 @@
 
   function dayDetail(date) {
     var t = todayStr();
-    var active = state.habits.filter(function (h) { return h.start <= date; });
-    if (!active.length) return label(date) + ': no habits yet';
-    var parts = active.map(function (h) { return { h: h, s: habitStatus(h, date, state.marks, t) }; });
-    var bad = parts.filter(function (p) { return p.s === 'miss' || p.s === 'slip'; })
-      .map(function (p) {
-        if (p.s === 'miss') return 'missed ' + p.h.name;
-        var c = markCount(state.marks, date, p.h.id);
-        return 'slipped on ' + p.h.name + (c > 1 ? ' (' + c + 'x)' : '');
-      });
-    if (bad.length) return label(date) + ': red. ' + bad.join(', ') + '.';
-    var left = parts.filter(function (p) { return p.s === 'pending'; }).length;
-    if (left) return label(date) + ': in progress, ' + left + ' to go.';
-    return label(date) + ': green. Everything on track.';
+    var info = dayInfo(state.habits, date, state.marks, t);
+    if (info.st === 'none') return label(date) + ': no habits yet';
+    if (info.st === 'off') return label(date) + ': rest day';
+    var parts = [];
+    state.habits.forEach(function (h) {
+      if (h.start > date) return;
+      var d = habitDay(h, date, state.marks, t);
+      if (d.st === 'off') return;
+      var c = markCount(state.marks, date, h.id);
+      parts.push(h.name + ' ' + signed(d.pts) + (h.type === 'bad' && c > 1 ? ' (' + c + ' slips)' : ''));
+    });
+    return label(date) + ': ' + signed(info.score) + ' points (' + parts.join(', ') + ')' + (date === t ? '. Day still open.' : '.');
   }
 
   function logoSvg() {
@@ -318,25 +356,35 @@
 
   function renderHero(t) {
     var s = stats(state.habits, state.marks, t);
-    var today = dayStatus(state.habits, t, state.marks, t);
-    var msg, cls = '';
+    var cls = s.total > 0 ? 'pos' : s.total < 0 ? 'neg' : 'zero';
+    var goodLeft = 0;
+    var cleanOpen = false;
+    state.habits.forEach(function (h) {
+      var d = habitDay(h, t, state.marks, t);
+      if (h.type === 'good' && d.st === 'pending') goodLeft++;
+      if (h.type === 'bad' && d.st === 'clean' && d.pend) cleanOpen = true;
+    });
+    var msg, mcls = '';
     if (!state.habits.length) {
-      msg = 'Add your first habit to start a streak.';
-    } else if (today === 'green') {
-      msg = 'Today is green. Nice.'; cls = 'good';
-    } else if (today === 'red') {
-      msg = 'Today went red. Tomorrow is a fresh square.'; cls = 'bad';
+      msg = 'Add your first habit to start scoring.';
+    } else if (goodLeft) {
+      msg = goodLeft + (goodLeft === 1 ? ' habit' : ' habits') + ' left to do today.' + (cleanOpen ? ' Stay clean to bank the rest at midnight.' : '');
+    } else if (s.today < 0) {
+      msg = 'Today is in the red. Tomorrow is a fresh square.'; mcls = 'bad';
+    } else if (cleanOpen) {
+      msg = 'All done. Stay clean to bank the rest at midnight.'; mcls = 'good';
     } else {
-      var left = state.habits.filter(function (h) { return habitStatus(h, t, state.marks, t) === 'pending'; }).length;
-      msg = left + (left === 1 ? ' habit' : ' habits') + ' left to do today.';
+      msg = 'Today is banked.'; mcls = 'good';
     }
+    var tcls = s.today > 0 ? 'pos' : s.today < 0 ? 'neg' : 'zero';
+    var wcls = s.week > 0 ? 'pos' : s.week < 0 ? 'neg' : 'zero';
     $('#hero').innerHTML =
-      '<div><div class="big">' + s.current + '</div><div class="big-label">day streak</div></div>' +
+      '<div><div class="big ' + cls + '">' + signed(s.total).replace('+', '') + '</div><div class="big-label">points</div></div>' +
       '<div class="hero-stats">' +
-      '<div class="stat"><b>' + s.best + '</b><span>Best streak</span></div>' +
-      '<div class="stat"><b>' + s.greens + '</b><span>Green days</span></div>' +
+      '<div class="stat"><b class="' + tcls + '">' + signed(s.today) + '</b><span>Today</span></div>' +
+      '<div class="stat"><b class="' + wcls + '">' + signed(s.week) + '</b><span>Last 7 days</span></div>' +
       '</div>' +
-      '<p class="hero-msg ' + cls + '">' + msg + '</p>';
+      '<p class="hero-msg ' + mcls + '">' + msg + '</p>';
   }
 
   function renderMaster(t) {
@@ -347,9 +395,9 @@
       var cells = '';
       for (var i = 0; i < 7; i++) {
         var d = addDays(ws, i);
-        var s = dayStatus(state.habits, d, state.marks, t);
-        cells += '<button type="button" class="c ' + CLS[s] + (d === t ? ' t' : '') + '" data-date="' + d + '" aria-label="' + label(d) + '"' +
-          (s === 'future' ? ' disabled tabindex="-1"' : '') + '></button>';
+        var info = dayInfo(state.habits, d, state.marks, t);
+        cells += '<button type="button" class="c ' + dayClass(info) + (d === t ? ' t' : '') + '" data-date="' + d + '" aria-label="' + label(d) + '"' +
+          (info.st === 'future' ? ' disabled tabindex="-1"' : '') + '></button>';
         if (d.slice(8) === '01') months += '<span style="grid-column:' + (w + 1) + '">' + monthName(d) + '</span>';
       }
       cols += '<div class="wk">' + cells + '</div>';
@@ -359,27 +407,26 @@
   }
 
   function habitRow(h, t) {
-    var ts = habitStatus(h, t, state.marks, t);
+    var ts = habitDay(h, t, state.marks, t).st;
     var count = markCount(state.marks, t, h.id);
-    var streak = habitStreak(h, state.marks, t);
+    var total = habitTotal(h, state.marks, t);
     var id = h.id;
     var open = !!openGrids[id];
 
-    var action, state_ = '';
+    var action, status = '';
     if (h.type === 'good') {
       if (ts === 'done') action = '<button type="button" class="btn sm done" data-act="toggle" data-id="' + id + '" aria-pressed="true">Done ✓</button>';
       else if (ts === 'pending') action = '<button type="button" class="btn sm primary" data-act="toggle" data-id="' + id + '" aria-pressed="false">Mark done</button>';
       else action = '<button type="button" class="btn sm" disabled>Rest day</button>';
-      state_ = streak ? streak + '-day streak' : 'No streak yet';
     } else if (ts === 'off') {
       action = '<button type="button" class="btn sm" disabled>Off today</button>';
-      state_ = 'Not tracked today';
     } else {
       action = '<button type="button" class="btn sm slipbtn' + (count ? ' hot' : '') + '" data-act="slip" data-id="' + id + '">' + (count ? 'I slipped again' : 'I slipped') + '</button>' +
         (count ? '<button type="button" class="btn sm undo" data-act="unslip" data-id="' + id + '" aria-label="Undo last slip">Undo</button>' : '');
-      state_ = count ? '<span class="bad">Slipped ' + times(count) + ' today</span>' : '<span class="good">Clean today</span>';
+      status = count ? '<span class="bad">Slipped ' + times(count) + ' today</span>' : '<span class="good">Clean so far</span>';
     }
-    var meta = '<span class="' + h.type + '">' + (h.type === 'good' ? 'Good' : 'Bad') + '</span> · ' + freqText(h.days) + ' · ' + state_;
+    var pts = '<span class="' + (total > 0 ? 'good' : total < 0 ? 'bad' : 'zero') + '">' + signed(total) + ' pts</span>';
+    var meta = '<span class="' + h.type + '">' + (h.type === 'good' ? 'Good' : 'Bad') + '</span> · ' + freqText(h.days) + ' · ' + pts + (status ? ' · ' + status : '');
 
     var more = '';
     if (open) {
@@ -387,17 +434,19 @@
       var cells = '';
       for (var i = 0; i < 35; i++) {
         var d = addDays(calStart, i);
-        var s = habitStatus(h, d, state.marks, t);
-        var tap = TAPPABLE.indexOf(s) !== -1;
+        var dd = habitDay(h, d, state.marks, t);
+        var tap = tappable(dd.st);
         var c = markCount(state.marks, d, id);
-        var word = STATUS_WORD[s] + (h.type === 'bad' && c > 1 ? ' ' + c + ' times' : '');
-        cells += '<button type="button" class="c ' + CLS[s] + (d === t ? ' t' : '') + '"' +
+        var word = STATUS_WORD[dd.st] + (h.type === 'bad' && c > 1 ? ' ' + c + ' times' : '') + (tap ? ', ' + signed(dd.pts) + ' points' : '');
+        cells += '<button type="button" class="c ' + habitClass(dd) + (d === t ? ' t' : '') + '"' +
           (h.type === 'bad' && c > 1 ? ' data-n="' + c + '"' : '') +
           (tap ? ' data-date="' + d + '" data-id="' + id + '"' : ' disabled tabindex="-1"') +
           ' aria-label="' + label(d) + ': ' + word + '"></button>';
       }
       var heads = DAY_LETTERS.map(function (l) { return '<span>' + l + '</span>'; }).join('');
-      var hint = h.type === 'bad' ? 'Tap a past day to add a slip. Keep tapping to add more, up to ' + SLIP_CYCLE_MAX + ', then it clears.' : 'Tap a past day to fix it.';
+      var hint = h.type === 'bad'
+        ? 'Tap a past day to add a slip (-1 each). Keep tapping to add more, up to ' + SLIP_CYCLE_MAX + ', then it clears.'
+        : 'Tap a past day to fix it.';
       more = '<div class="hrow-more"><div class="cal-head" aria-hidden="true">' + heads + '</div><div class="cal">' + cells + '</div>' +
         '<p class="cal-hint">' + hint + '</p>' +
         '<button type="button" class="link edit-link" data-act="edit" data-id="' + id + '">Edit habit</button></div>';
@@ -415,7 +464,7 @@
   function renderHabits(t) {
     var html;
     if (!state.habits.length) {
-      html = '<div class="card empty"><h3>Pick up to three</h3><p>Good habits you want to do, bad habits you want to avoid. Keep it small so you can keep it going.</p></div>';
+      html = '<div class="card empty"><h3>Pick up to three</h3><p>Good habits earn a point when you do them. Bad habits earn a point for each clean day and lose one for every slip.</p></div>';
     } else {
       html = '<div class="card habit-list">' + state.habits.map(function (h) { return habitRow(h, t); }).join('') + '</div>';
     }
@@ -463,7 +512,7 @@
       : '';
 
     var tz = tzAbbr();
-    var note = '<p class="hist-note">Every tap is logged with its time, in your device\'s local time' + (tz ? ' (' + esc(tz) + ')' : '') + '.</p>';
+    var note = '<p class="hist-note">Every tap is logged with its time and the points it moved, in your device\'s local time' + (tz ? ' (' + esc(tz) + ')' : '') + '.</p>';
     var log = state.log.slice().sort(function (a, b) { return b.t - a.t; });
     if (!log.length) {
       $('#history').innerHTML = note + '<p class="hist-note">Nothing logged yet. Tap a habit on the Today tab and it will show up here.</p>';
@@ -481,8 +530,10 @@
       }
       var time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', second: '2-digit' });
       var dot = e.act === 'done' ? 'g' : e.act === 'slip' ? 'r' : '';
+      var pc = e.p > 0 ? 'pos' : e.p < 0 ? 'neg' : 'zero';
       html += '<div class="hist-row"><span class="hist-time">' + esc(time) + '</span><i class="dot ' + dot + '"></i>' +
-        '<span class="hist-what"><b>' + esc(e.name) + '</b> ' + esc(actText(e)) + '</span></div>';
+        '<span class="hist-what"><b>' + esc(e.name) + '</b> ' + esc(actText(e)) + '</span>' +
+        '<span class="hist-pts ' + pc + '">' + signed(e.p) + '</span></div>';
     });
     html += '</div>';
     if (log.length > shown.length) html += '<p class="hist-note">Showing the latest ' + shown.length + ' of ' + log.length + ' entries.</p>';
@@ -516,8 +567,8 @@
   var editing = null;
   var form = { type: 'good', days: ALL_DAYS.slice() };
   var HINTS = {
-    good: 'Mark it on each scheduled day. Done turns the square green, a miss turns it red.',
-    bad: 'Stays green as long as you leave it unmarked. Each slip you log turns the day red and is counted.'
+    good: 'Worth +1 point each scheduled day you do it. A missed day is 0.',
+    bad: 'Worth +1 point for each clean day, paid out at midnight. Every slip you log is -1.'
   };
 
   function syncSheet() {
@@ -589,7 +640,7 @@
   /* ---------- backup ---------- */
 
   function exportData() {
-    var json = JSON.stringify({ app: 'three', version: 2, exported: new Date().toISOString(), habits: state.habits, marks: state.marks, log: state.log }, null, 2);
+    var json = JSON.stringify({ app: 'three', version: 2, v: 2, exported: new Date().toISOString(), habits: state.habits, marks: state.marks, log: state.log }, null, 2);
     var name = 'three-backup-' + todayStr() + '.json';
     var file;
     try { file = new File([json], name, { type: 'application/json' }); } catch (e) { file = null; }
@@ -610,7 +661,7 @@
       var next = null;
       try { next = normalize(JSON.parse(r.result)); } catch (e) { next = null; }
       if (!next) { toast('That is not a valid three backup.'); return; }
-      if (!window.confirm('Replace your current habits with this backup?')) return;
+      if (!window.confirm('Replace your current habits and points with this backup?')) return;
       state = next;
       save();
       render();
@@ -686,7 +737,7 @@
         var remote = res.data ? normalize(res.data) : null;
         if (remote && remote.updated > state.updated) { adopt(res.data); return; }
         if (!remote || state.updated > remote.updated) {
-          return api('PUT', { data: { habits: state.habits, marks: state.marks, log: mergeLogs(state.log, remote ? remote.log : []), updated: state.updated } })
+          return api('PUT', { data: { v: 2, habits: state.habits, marks: state.marks, log: mergeLogs(state.log, remote ? remote.log : []), updated: state.updated } })
             .then(function (put) { if (put.status === 409 && put.data) adopt(put.data); });
         }
       })

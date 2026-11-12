@@ -5,8 +5,8 @@
 //   DATABASE_URL   Neon connection string (the Neon integration adds this;
 //                  POSTGRES_URL is also accepted)
 //
-// GET  /api/data  -> { data: { habits, marks, updated } | null }
-// PUT  /api/data  -> body { data: { habits, marks, updated } }
+// GET  /api/data  -> { data: { v, habits, marks, log, updated } | null }
+// PUT  /api/data  -> body { data: { v: 2, habits, marks, log, updated } }
 //                    200 { ok: true } when saved
 //                    409 { data } when the server already holds a newer version
 
@@ -30,6 +30,7 @@ function bearer(req) {
 
 function validate(d) {
   if (!d || typeof d !== 'object') return 'data missing';
+  if (d.v !== 2) return 'outdated app version, reload the app';
   if (!Array.isArray(d.habits) || d.habits.length > 3) return 'habits must be an array of at most 3';
   if (!d.marks || typeof d.marks !== 'object' || Array.isArray(d.marks)) return 'marks must be an object';
   if (typeof d.updated !== 'number' || !isFinite(d.updated) || d.updated < 0) return 'updated must be a number';
@@ -61,7 +62,9 @@ module.exports = async function handler(req, res) {
     const sql = neon(url);
 
     if (!tableReady) {
-      await sql`CREATE TABLE IF NOT EXISTS three_state (
+      // Points system reset: the pre-points table is dropped, a fresh one starts at zero.
+      await sql`DROP TABLE IF EXISTS three_state`;
+      await sql`CREATE TABLE IF NOT EXISTS three_points (
         id integer PRIMARY KEY,
         data jsonb NOT NULL,
         updated_ms bigint NOT NULL
@@ -70,7 +73,7 @@ module.exports = async function handler(req, res) {
     }
 
     const readCurrent = async () => {
-      const rows = await sql`SELECT data, updated_ms FROM three_state WHERE id = 1`;
+      const rows = await sql`SELECT data, updated_ms FROM three_points WHERE id = 1`;
       if (!rows.length) return null;
       return Object.assign({}, rows[0].data, { updated: Number(rows[0].updated_ms) });
     };
@@ -87,16 +90,16 @@ module.exports = async function handler(req, res) {
     const problem = validate(d);
     if (problem) return res.status(400).json({ error: problem });
 
-    const payload = JSON.stringify({ habits: d.habits, marks: d.marks, log: d.log || [] });
+    const payload = JSON.stringify({ v: 2, habits: d.habits, marks: d.marks, log: d.log || [] });
     const updated = String(Math.floor(d.updated));
 
     // Only overwrite when the incoming version is at least as new as the stored one.
     const rows = await sql`
-      INSERT INTO three_state (id, data, updated_ms)
+      INSERT INTO three_points (id, data, updated_ms)
       VALUES (1, ${payload}::jsonb, ${updated}::bigint)
       ON CONFLICT (id) DO UPDATE
         SET data = EXCLUDED.data, updated_ms = EXCLUDED.updated_ms
-        WHERE three_state.updated_ms <= EXCLUDED.updated_ms
+        WHERE three_points.updated_ms <= EXCLUDED.updated_ms
       RETURNING updated_ms`;
 
     if (!rows.length) return res.status(409).json({ data: await readCurrent() });

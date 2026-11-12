@@ -1,6 +1,6 @@
 # three
 
-Three habits. One streak. An installable web app (PWA) with no build step and optional Neon sync.
+Three habits. One score. An installable web app (PWA) with no build step and optional Neon sync.
 
 ## Deploy
 
@@ -18,14 +18,18 @@ Set up your habits after installing, not before. On iPhone the home screen app h
 ## How it works
 
 - Up to three habits. Each is a good or bad habit with a set of days.
-- Good habit: mark it done. Done is green, missed is red.
-- Bad habit: green while unmarked. Mark a slip and the day turns red.
-- Master grid: a day is green only if every habit is on track. Otherwise red.
-- Streak: consecutive green days. An unfinished today does not break it.
-- Days a habit is not scheduled count as rest days and never break a streak.
-- Bad habits can be logged more than once a day. The button changes to "I slipped again", and Undo removes the last one. The day stays red, and the count shows in the habit's grid.
+- Scoring: every finished day, each green habit gives +1. Every slip is -1, so three slips in a day is -3.
+- Good habit: mark it done for +1. A missed day is 0.
+- Bad habit: +1 for each clean day, paid out at midnight. Each slip you log is -1 (the button turns into "I slipped again"; Undo removes the last one).
+- Days a habit is not scheduled are rest days and score nothing.
+- Master grid: yellow is a zero day, greener as the day gets more positive, redder as it gets more negative. Open days show as an outlined square.
+- Total points replaces the streak. The hero also shows today and the last 7 days.
 - Tap a past square on a habit to fix a day. Tap a habit's name to open its grid and Edit link.
-- History tab: every tap is logged with its exact time in your device's local time zone, including undos and past-day fixes. It also totals slips for today, 7 days and 30 days.
+- History tab: every tap is logged with its exact local time and the points it moved.
+
+## Reset
+
+Moving to points wiped the scores. Habits are kept, everything else starts at 0 (local storage key `three.v2`). On the server, the first request after deploy drops the old `three_state` table and creates `three_points`. This is irreversible.
 
 ## Data and sync
 
@@ -33,7 +37,7 @@ The app always saves to the browser (localStorage) first, so it works offline. O
 
 Set up sync:
 
-1. In the Vercel project, open **Storage** and connect your Neon database. This adds `DATABASE_URL`. An existing Neon database works, the app only creates one table named `three_state`.
+1. In the Vercel project, open **Storage** and connect your Neon database. This adds `DATABASE_URL`. An existing Neon database works, the app only creates one table named `three_points`.
 2. In **Settings, Environment Variables**, add `APP_PASSCODE` with a long private passcode.
 3. Redeploy.
 4. In the app footer, tap **Turn on sync** and enter the passcode. Do this once on each device.
